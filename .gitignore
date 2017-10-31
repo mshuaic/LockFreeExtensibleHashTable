@@ -259,3 +259,8 @@ paket-files/
 # Python Tools for Visual Studio (PTVS)
 __pycache__/
 *.pyc
+/test.cpp
+/test.h
+/LockFreeExtensibleHashMap.vcxproj.filters
+/LockFreeExtensibleHashMap.vcxproj
+/LockFreeExtensibleHashMap.sln
