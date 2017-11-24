@@ -16,6 +16,7 @@ private:
 	uintptr_t val = 0;
 	static const uintptr_t mask = 1;
 public:
+
 	MarkableReference(T ref= NULL, bool mark = false)
 	{
 		val = ((uintptr_t)ref & ~mask) | (mark ? 1 : 0);
@@ -34,6 +35,7 @@ public:
 		*marked = val & mask;
 		return (T)(val & ~mask);
 	}
+
 
 	T operator->()
 	{
