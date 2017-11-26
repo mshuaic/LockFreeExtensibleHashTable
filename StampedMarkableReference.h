@@ -10,7 +10,8 @@
 #define MARK_MASK 0x1
 #endif
 
-#define uint size_t//unsigned short int
+//#include <cstddef>
+//#define size_t size_t//unsigned short int
 
 template<class T>
 class StampedMarkableReference
@@ -26,7 +27,7 @@ public:
 		val = ((uintptr_t)ref & ~stampMask & ~markMask)  | (mark ? 1 : 0);
 	}
 
-	StampedMarkableReference(T ref = NULL, uint stamp = 0, bool mark = false)
+	StampedMarkableReference(T ref = NULL, size_t stamp = 0, bool mark = false)
 	{
 		val = ((uintptr_t)ref & ~stampMask & ~markMask) | (stamp << shift) | (mark ? 1 : 0);
 	}
@@ -35,7 +36,7 @@ public:
 		return (T)(val & ~stampMask & ~markMask);
 	}
 
-	T getStamp(uint* stamp)
+	T getStamp(size_t* stamp)
 	{
 		*stamp = (val & stampMask) >> shift;
 		return (T)(val & ~stampMask & ~markMask);
@@ -47,7 +48,7 @@ public:
 		return (T)(val & ~stampMask & ~markMask);
 	}
 
-	T get(uint* stamp, bool* mark)
+	T get(size_t* stamp, bool* mark)
 	{
 		*stamp = (val & stampMask) >> shift;
 		*mark = val & markMask == 1 ? true:false;

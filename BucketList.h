@@ -3,21 +3,26 @@
 
 #include <cstdint>
 #if SIZE_MAX == UINT32_MAX
-	#define WORD_SIZE 24
-	#define HI_MASK 0x00800000
-	#define MASK 0x00FFFFFF
+#define WORD_SIZE 24
+#define HI_MASK 0x00800000
+#define MASK 0x00FFFFFF
 #elif SIZE_MAX == UINT64_MAX
-	#define WORD_SIZE 56
-	#define HI_MASK 0x008000000000
-	#define MASK 0x00FFFFFFFFFFFFFF
+#define WORD_SIZE 56
+#define HI_MASK 0x008000000000
+#define MASK 0x00FFFFFFFFFFFFFF
 #endif
 
 #define LO_MASK 0x1
-#define hash_t size_t
+
+
 
 //#include "Node.h"
 //#include "MarkableReference.h"
 #include "StampedMarkableReference.h"
+#define hash_t size_t
+#include <atomic>
+#include <functional>
+
 
 #ifndef SMR
 #define SMR StampedMarkableReference<Node<T>*>
@@ -26,12 +31,18 @@
 thread_local void* freeList = nullptr;
 
 template <typename T>
+class BucketList;
+
+template <typename T>
+class Window;
+
+template <typename T>
 class Node
 {
 public:
 	T item;
 	hash_t key;
-	std::atomic<SMR> next = nullptr;
+	std::atomic<SMR> next = {nullptr};
 	Node<T>* _next = nullptr;
 	Node(hash_t key, bool setSentinelNode)
 	{
@@ -39,7 +50,7 @@ public:
 		{
 			this->key = key;
 			this->next = SMR();
-			this->item = (T)nullptr;
+			this->item = (T)NULL;
 		}
 
 	}
@@ -56,10 +67,6 @@ public:
 		this->next = SMR();
 	}
 
-	~Node()
-	{
-		delete this;
-	}
 
 	void set(hash_t key, T item)
 	{
@@ -77,18 +84,19 @@ public:
 		Node<T>* entry = this->next.load().getMark(&cMarked);
 		//SMR entry = this->next.load().getMark(&cMarked);
 		bool isStamped = false;
-		uint entryStamp = 0;
+		size_t entryStamp = 0;
 		this->next.load().getStamp(&entryStamp);
 		bool flag = false;
 		while (cMarked)
 		{
 			Node<T>* succ = entry->next.load().getMark(&sMarked);
 			this->next.load().getStamp(&entryStamp);
-			flag = this->next.compare_exchange_strong(SMR(entry, entryStamp,true), SMR(succ, entryStamp+1,sMarked));
+			SMR expected = SMR(entry, entryStamp, true);
+			flag = this->next.compare_exchange_strong(expected, SMR(succ, entryStamp + 1, sMarked));
 			isStamped = true;
 			Node<T>* temp = entry;
 			entry = this->next.load().getMark(&cMarked);
-			if(flag)
+			if (flag)
 				BucketList<T>::free(temp);
 		}
 		return SMR(entry, entryStamp + (int)isStamped, cMarked);
@@ -116,13 +124,15 @@ private:
 public:
 	BucketList() {
 		this->head = new Node<T>(0, true);
-		this->head->next = SMR(new Node<T>(SIZE_MAX,true),false);
+		this->head->next = SMR(new Node<T>(SIZE_MAX, true), false);
 		tail = head->next;
 		tailkey = tail->key;
 	}
 
 	~BucketList()
 	{
+		if (head == nullptr)
+			return;
 		Node<T>* temp = nullptr;
 		Node<T>* curr = head.getRef();
 		while (curr->next.load().getRef() != nullptr)
@@ -133,12 +143,9 @@ public:
 		}
 	}
 
-	Node<T>* allocate(hash_t key, bool setSentinelNode)
+	Node<T>* allocate(hash_t key)
 	{
-		if (setSentinelNode)
-		{
-			return allocate(key, (T)nullptr);
-		}
+		return allocate(key, (T)NULL);
 	}
 
 
@@ -149,7 +156,7 @@ public:
 			node = new Node<T>();
 		else
 			freeList = (void*)(node->_next);
-		node->set(key,item);
+		node->set(key, item);
 		return node;
 	}
 
@@ -180,17 +187,18 @@ public:
 			{
 				//if (entry.getRef() != (T)nullptr)
 				//{
-					free(entry.getRef());
+				free(entry.getRef());
 				//}
 				return false;
 			}
 			else
 			{
-				uint currStamp = 0;
+				size_t currStamp = 0;
 				pred->next.load().getStamp(&currStamp);
 				//SMR entry = new Node<T>(key, item);
 				entry->next = SMR(curr);
-				splice = pred->next.compare_exchange_strong(SMR(curr, currStamp, false), SMR(entry, 0,false));
+				SMR expected = SMR(curr, currStamp, false);
+				splice = pred->next.compare_exchange_strong(expected, SMR(entry, 0, false));
 				if (splice)
 					return true;
 				else
@@ -217,7 +225,7 @@ public:
 			{
 				//Node<T>* temp = pred->next.load().getRef();
 				//SMR currTemp = pred->next.load();
-				snip = pred->next.compare_exchange_strong(curr, SMR(curr,true));
+				snip = pred->next.compare_exchange_strong(curr, SMR(curr, true));
 				if (snip)
 					return true;
 				else
@@ -250,7 +258,7 @@ public:
 	BucketList<T>* getSentinel(unsigned int index)
 	{
 		hash_t key = makeSentinelKey(index);
-		SMR entry = allocate(key, true);
+		SMR entry = allocate(key);
 		bool splice;
 		while (true)
 		{
@@ -258,28 +266,29 @@ public:
 			SMR pred = window->pred;
 			SMR curr = window->curr;
 			delete window;
-				if (curr->key == key)
+			if (curr->key == key)
+			{
+				//if (entry.getRef() != (T)nullptr)
+				free(entry.getRef());
+				return new BucketList<T>(curr);
+			}
+			else
+			{
+				size_t currStamp = 0;
+				pred->next.load().getStamp(&currStamp);
+				//SMR entry = new Node<T>(key, true);
+				entry->next = SMR(curr);
+				SMR expected = SMR(curr, currStamp, false);
+				splice = pred->next.compare_exchange_strong(expected, SMR(entry, 0, false));
+				if (splice)
 				{
-					//if (entry.getRef() != (T)nullptr)
-						free(entry.getRef());
-					return new BucketList<T>(curr);
+					return new BucketList<T>(entry);
 				}
 				else
 				{
-					uint currStamp = 0;
-					pred->next.load().getStamp(&currStamp);
-					//SMR entry = new Node<T>(key, true);
-					entry->next = SMR(curr);
-					splice = pred->next.compare_exchange_strong(SMR(curr, currStamp, false), SMR(entry,0, false));
-					if (splice)
-					{
-						return new BucketList<T>(entry);
-					}
-					else
-					{
-						continue;
-					}
+					continue;
 				}
+			}
 		}
 	}
 
@@ -339,7 +348,7 @@ Window<T>* find(SMR head, hash_t key)
 		currkey = curr->key;
 		pred = curr;
 		curr = pred->getNext();
-		
+
 	}
 	return new Window<T>(pred, curr);
 }
