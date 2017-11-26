@@ -10,7 +10,7 @@
 #define MARK_MASK 0x1
 #endif
 
-//#include <cstddef>
+#include <cstddef>
 //#define size_t size_t//unsigned short int
 
 template<class T>
