@@ -342,10 +342,8 @@ Window<T>* find(SMR head, hash_t key)
 {
 	SMR pred = head;
 	SMR curr = head->getNext();
-	hash_t currkey;
 	while (curr->key < key)
 	{
-		currkey = curr->key;
 		pred = curr;
 		curr = pred->getNext();
 

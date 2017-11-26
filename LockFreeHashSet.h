@@ -3,7 +3,6 @@
 
 #include <atomic>
 #include <cmath>
-#include <algorithm>  
 #include "BucketList.h"
 
 #define THRESHOLD 4

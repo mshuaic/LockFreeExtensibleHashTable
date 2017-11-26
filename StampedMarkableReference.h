@@ -44,7 +44,7 @@ public:
 
 	T getMark(bool* mark)
 	{
-		*mark = val & markMask == 1 ? true : false;
+		*mark = (val & markMask) == 1 ? true : false;
 		return (T)(val & ~stampMask & ~markMask);
 	}
 
