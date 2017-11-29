@@ -27,14 +27,7 @@ public:
 	}
 	~LockFreeHashSet()
 	{
-		for (int i = 0; i < bucketSize; i++)
-		{
-			if (bucket[i] != nullptr)
-			{
-				delete bucket[i];
-			}
-			
-		}
+		delete bucket[0];
 		delete[] bucket;
 	}
 
