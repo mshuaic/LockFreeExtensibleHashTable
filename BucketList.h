@@ -14,15 +14,11 @@
 
 #define LO_MASK 0x1
 
-
-
-//#include "Node.h"
-//#include "MarkableReference.h"
 #include "StampedMarkableReference.h"
 #define hash_t size_t
 #include <atomic>
 #include <functional>
-
+#include <memory>
 
 #ifndef SMR
 #define SMR StampedMarkableReference<Node<T>*>
@@ -42,7 +38,7 @@ class Node
 public:
 	T item;
 	hash_t key;
-	std::atomic<SMR> next = {nullptr};
+	std::atomic<SMR> next = { nullptr };
 	Node<T>* _next = nullptr;
 	Node(hash_t key, bool setSentinelNode)
 	{
@@ -108,9 +104,8 @@ template<typename T>
 class BucketList
 {
 private:
+	
 	SMR head;
-	SMR tail;
-	hash_t tailkey;
 	BucketList(SMR e)
 	{
 		this->head = e;
@@ -120,22 +115,21 @@ private:
 	{
 		return reverse(key & MASK);
 	}
-
+	template<typename T>
+	friend class LockFreeHashSet;
 public:
 	BucketList() {
 		this->head = new Node<T>(0, true);
 		this->head->next = SMR(new Node<T>(SIZE_MAX, true), false);
-		tail = head->next;
-		tailkey = tail->key;
 	}
 
 	~BucketList()
 	{
-		if (head == nullptr)
+		if (head.getRef() == nullptr)
 			return;
 		Node<T>* temp = nullptr;
 		Node<T>* curr = head.getRef();
-		while (curr->next.load().getRef() != nullptr)
+		while (curr != nullptr)
 		{
 			temp = curr;
 			curr = curr->next.load().getRef();
@@ -346,7 +340,6 @@ Window<T>* find(SMR head, hash_t key)
 	{
 		pred = curr;
 		curr = pred->getNext();
-
 	}
 	return new Window<T>(pred, curr);
 }

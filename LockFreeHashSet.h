@@ -30,7 +30,10 @@ public:
 		for (int i = 0; i < bucketSize; i++)
 		{
 			if (bucket[i] != nullptr)
+			{
 				delete bucket[i];
+			}
+			
 		}
 		delete[] bucket;
 	}

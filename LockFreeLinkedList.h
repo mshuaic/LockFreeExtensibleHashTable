@@ -1,76 +1,149 @@
 #ifndef LOCKFREELIST_H
 #define LOCKFREELIST_H
 
-#include <cstdint>
 #include <atomic>
 #include <functional>
-#include <climits>
-#include "MarkableReference.h"
+#include <limits>
+#include <cstdint>
+#include <thread>
+#include "StampedMarkableReference.h"
 
+#define SMR StampedMarkableReference<Node<T>*>
 
 template <typename T>
 class Node
 {
 public:
 	T item;
-	int key;
-	std::atomic<MarkableReference<Node<T>*>> next = MarkableReference<Node<T>*>();
-	Node(int key, bool setSentinelNode)
+	size_t key;
+	std::atomic<SMR> next = nullptr;// = SMR();
+	Node<T>* _next = nullptr;
+	Node(size_t key, bool setSentinelNode)
 	{
 		if (setSentinelNode)
 			this->key = key;
+		this->next = SMR();
 	}
 
 	Node(T item)
 	{
 		this->item = item;
 		this->key = std::hash<T>()(item);
+		this->next = SMR();
+	}
+
+	Node()
+	{
+		this->next = SMR();
+	}
+
+	~Node()
+	{
+		delete this;
+	}
+
+	void set(T item)
+	{
+		this->item = item;
+		this->key = std::hash<T>()(item);
 	}
 };
 
+//template<typename T>
+thread_local void* freeList = nullptr;
 
 template<typename T>
-class LockFreeList 
+class LockFreeList
 {
 private:
 
-	MarkableReference<Node<T>*> head;
+	SMR head;
 
 public:
 	LockFreeList();
 	bool add(T item);
 	bool remove(T item);
 	bool contains(T item);
+
+	Node<T>* allocate(T item)
+	{
+		Node<T>* node = (Node<T>*)freeList;
+		if (node == nullptr)
+			node = new Node<T>();
+		else
+			freeList = (void*)(node->_next);
+		node->set(item);
+		return node;
+	}
+
+	static void free(Node<T>* node)
+	{
+		//node->next = SMR(node->next.load().getRef());
+		node->_next = (Node<T>*)freeList;
+		freeList = (void*)node;
+	}
+
+	~LockFreeList()
+	{
+
+		Node<T>* temp = nullptr;
+		Node<T>* curr = head.getRef();
+		while (curr->next.load().getRef() != nullptr)
+		{
+			temp = curr;
+			curr = curr->next.load().getRef();
+			delete temp;
+		}
+	}
 };
 
 template<typename T>
 LockFreeList<T>::LockFreeList()
 {
-	this->head = new Node<T>(INT_MIN, true);
-	MarkableReference<Node<T>*> tail = new Node<T>(INT_MAX, true);
-	while (!head->next.compare_exchange_strong(MarkableReference<Node<T>*>(), MarkableReference<Node<T>*>(tail, false)));
+	this->head = new Node<T>(0, true);
+	SMR tail = new Node<T>(SIZE_MAX, true);
+	while (!head->next.compare_exchange_strong(SMR(), SMR(tail, false)));
 }
 
+//template<typename T>
+//LockFreeList<T>::~LockFreeList()
+//{
+//
+//	SMR temp = nullptr;
+//	SMR curr = head;
+//	while (curr->next != nullptr)
+//	{
+//		temp = curr;
+//		curr = curr->next;
+//		delete temp;
+//	}
+//}
 
 
 template<typename T>
 bool LockFreeList<T>::add(T item)
 {
-	int key = std::hash<T>()(item);
+	size_t key = std::hash<T>()(item);
+	Node<T>* node = allocate(item);
 	while (true)
 	{
 		Window<T>* window = find(head, key);
-		MarkableReference<Node<T>*> pred = window->pred;
-		MarkableReference<Node<T>*> curr = window->curr;
+		SMR pred = window->pred;
+		SMR curr = window->curr;
+		delete window;
 		if (curr->key == key)
 		{
+			if (node != nullptr)
+				//delete node;
+				free(node);
 			return false;
 		}
 		else
 		{
-			Node<T>* node = new Node<T>(item);
-			node->next = MarkableReference<Node<T>*>(curr, false);
-			if (pred->next.compare_exchange_strong(MarkableReference<Node<T>*>(curr, false), MarkableReference<Node<T>*>(node, false)))
+			uint currStamp = 0;
+			pred->next.load().getStamp(&currStamp);	
+			node->next = SMR(curr);
+			if (pred->next.compare_exchange_strong(SMR(curr, currStamp, false), SMR(node, 0, false)))
 			{
 				return true;
 			}
@@ -82,26 +155,31 @@ bool LockFreeList<T>::add(T item)
 template<typename T>
 bool LockFreeList<T>::remove(T item)
 {
-	int key = std::hash<T>()(item);
+	size_t key = std::hash<T>()(item);
+	uint currStamp = 0;
+	uint succStamp = 0;
 	bool snip = false;
 	while (true)
 	{
 		Window<T>* window = find(head, key);
-		MarkableReference<Node<T>*> pred = window->pred;
-		MarkableReference<Node<T>*> curr = window->curr;
+		SMR pred = window->pred;
+		SMR curr = window->curr;
+		delete window;
 		if (curr->key != key)
 		{
 			return false;
 		}
 		else
 		{
-			MarkableReference<Node<T>*> succ = curr->next.load();
-			snip = curr->next.compare_exchange_strong(succ, MarkableReference<Node<T>*>(curr->next.load(), true));
+			SMR succ = curr->next.load();
+			snip = curr->next.compare_exchange_strong(succ, SMR(curr->next.load(), true));
 			if (!snip)
 			{
 				continue;
 			}
-			pred->next.compare_exchange_strong(MarkableReference<Node<T>*>(curr, false), MarkableReference<Node<T>*>(succ, false));
+			/*pred->next.load().getStamp(&currStamp);
+			curr->next.load().getStamp(&succStamp);
+			pred->next.compare_exchange_strong(SMR(curr, currStamp, false), SMR(succ, succStamp, false));*/
 			return true;
 		}
 	}
@@ -110,10 +188,11 @@ bool LockFreeList<T>::remove(T item)
 template<typename T>
 bool LockFreeList<T>::contains(T item)
 {
-	int key = std::hash<T>()(item);
+	size_t key = std::hash<T>()(item);
 	Window<T>* window = find(head, key);
-	MarkableReference<Node<T>*> pred = window->pred;
-	MarkableReference<Node<T>*> curr = window->curr;
+	SMR pred = window->pred;
+	SMR curr = window->curr;
+	delete window;
 	return (curr.getRef()->key == key);
 }
 
@@ -121,9 +200,9 @@ template <typename T>
 class Window
 {
 public:
-	MarkableReference<Node<T>*> pred;
-	MarkableReference<Node<T>*> curr;
-	Window(MarkableReference<Node<T>*> pred, MarkableReference<Node<T>*> curr)
+	SMR pred;
+	SMR curr;
+	Window(SMR pred, SMR curr)
 	{
 		this->curr = curr;
 		this->pred = pred;
@@ -131,26 +210,33 @@ public:
 };
 
 template <typename T>
-Window<T>* find(MarkableReference<Node<T>*> head, int key)
+Window<T>* find(SMR head, size_t key)
 {
-	MarkableReference<Node<T>*> pred;
-	MarkableReference<Node<T>*> curr;
-	MarkableReference<Node<T>*> succ;
+	SMR pred;
+	SMR curr;
+	SMR succ;
+	uint predStamp = 0;
+	uint currStamp = 0;
+	uint succStamp = 0;
 	bool marked = false;
 	bool snip;
 retry:
 	while (true) {
-		pred = head;
-		curr = pred->next.load();
+		pred = head.getStamp(&predStamp);
+		curr = pred->next.load().getStamp(&currStamp);
 		while (true)
 		{
-			succ = curr->next.load().get(&marked);
+			succ = curr->next.load().get(&succStamp, &marked);
 			while (marked)
 			{
-				snip = pred->next.compare_exchange_strong(MarkableReference<Node<T>*>(curr, false), MarkableReference<Node<T>*>(succ, false));
+				pred->next.load().getStamp(&currStamp);
+				snip = pred->next.compare_exchange_strong(SMR(curr.getRef(), currStamp, false), SMR(succ.getRef(), currStamp+1, false));
 				if (!snip) goto retry;
+				Node<T>* temp = curr.getRef();
 				curr = pred->next.load();
-				succ = curr->next.load().get(&marked);
+				succ = curr->next.load().getMark(&marked);
+				LockFreeList<T>::free(temp);
+				//delete temp;
 			}
 			if (curr.getRef()->key >= key)
 				return new Window<T>(pred, curr);
