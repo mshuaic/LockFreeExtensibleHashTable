@@ -115,8 +115,6 @@ private:
 	{
 		return reverse(key & MASK);
 	}
-	template<typename T>
-	friend class LockFreeHashSet;
 public:
 	BucketList() {
 		this->head = new Node<T>(0, true);
