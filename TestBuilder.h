@@ -52,6 +52,22 @@ public:
 	{
 		currOp++;
 	}
+
+	void reset()
+	{
+		currOp = 0;
+	}
+	
+	uint getOp(uint numOp)
+	{
+		return randOps[numOp];
+	}
+
+	uint getNum(uint numNum)
+	{
+		return randNums[numNum];
+	}
+
 };
 
 

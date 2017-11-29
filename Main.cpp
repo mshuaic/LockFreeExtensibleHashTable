@@ -213,9 +213,9 @@
 #include "Header.h"
 #include "TestBuilder.h"
 #include "tbb/concurrent_unordered_set.h"
-#define MAX_NUM_OP 5000
-#define CAPACITY 0x200000
-#define MAX_NUM_THREAD 16
+#define MAX_NUM_OP 500000
+#define CAPACITY 0x2000000
+#define MAX_NUM_THREAD 8
 #define TOTAL_NUM_RUNS 5
 #define ADD_OP_PERCENT 88
 #define REMOVE_OP_PERCENT 90
@@ -227,16 +227,17 @@ bool ready = false;
 tbb::concurrent_unordered_set<unsigned int>* tbbset;
 LockFreeHashSet<unsigned int>* lockfreeHashSet;
 testSet<unsigned int>* testset;
+TestBuilder tb(MAX_NUM_OP, TOTAL_PERCENTAGE);
 void test_tbb()
 {
-	TestBuilder tb(MAX_NUM_OP, TOTAL_PERCENTAGE);
+	//TestBuilder tb(MAX_NUM_OP, TOTAL_PERCENTAGE);
 	//tbb::concurrent_unordered_set<unsigned int> set;
 	while (!ready)
 		std::this_thread::yield();
-	for (int i = 0; i<MAX_NUM_OP; i++)
+	for (unsigned int i = 0; i<MAX_NUM_OP; i++)
 	{
-		unsigned int num = tb.getNextNum();
-		unsigned int op = tb.getNextOp();
+		unsigned int num = tb.getNum(i);
+		unsigned int op = tb.getOp(i);
 		if (op <= ADD_OP_PERCENT)
 		{
 			tbbset->insert(num);
@@ -245,20 +246,19 @@ void test_tbb()
 			tbbset->unsafe_erase(num);
 		else
 			tbbset->find(num);
-		tb.nextOp();
 	}
 }
 
 void test_lockFreeHashSet()
 {
-	TestBuilder tb(MAX_NUM_OP, TOTAL_PERCENTAGE);
+	//TestBuilder tb(MAX_NUM_OP, TOTAL_PERCENTAGE);
 	//LockFreeHashSet<unsigned int> set(CAPACITY);
 	while (!ready)
 		std::this_thread::yield();
-	for (int i = 0; i<MAX_NUM_OP; i++)
+	for (unsigned int i = 0; i<MAX_NUM_OP; i++)
 	{
-		unsigned int num = tb.getNextNum();
-		unsigned int op = tb.getNextOp();
+		unsigned int num = tb.getNum(i);
+		unsigned int op = tb.getOp(i);
 		if (op <= ADD_OP_PERCENT)
 		{
 			lockfreeHashSet->add(num);
@@ -267,20 +267,19 @@ void test_lockFreeHashSet()
 			lockfreeHashSet->remove(num);
 		else
 			lockfreeHashSet->contains(num);
-		tb.nextOp();
 	}
 }
 
 void test_unordered_set()
 {
-	TestBuilder tb(MAX_NUM_OP, TOTAL_PERCENTAGE);
+	//TestBuilder tb(MAX_NUM_OP, TOTAL_PERCENTAGE);
 	//testSet<unsigned int> set;
 	while (!ready)
 		std::this_thread::yield();
-	for (int i = 0; i<MAX_NUM_OP; i++)
+	for (unsigned int i = 0; i<MAX_NUM_OP; i++)
 	{
-		unsigned int num = tb.getNextNum();
-		unsigned int op = tb.getNextOp();
+		unsigned int num = tb.getNum(i);
+		unsigned int op = tb.getOp(i);
 		if (op <= ADD_OP_PERCENT)
 		{
 			testset->add(num);
@@ -289,7 +288,6 @@ void test_unordered_set()
 			testset->remove(num);
 		else
 			testset->contains(num);
-		tb.nextOp();
 	}
 }
 
